@@ -1,0 +1,94 @@
+version: '3.6'
+services:
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.2.3
+    container_name: elk_filebeat
+    restart: on-failure
+    depends_on:
+      - mysql
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml
+      - ./data/mysql/mysql/mysql-slow.log:/var/log/mysql/mysql-slow.log
+      - filebeat_data:/usr/share/filebeat/data/
+    networks:
+      - log_elk
+
+  mysql:
+    platform: linux/amd64
+    image: mysql:latest
+    restart: always
+    container_name: elk_mysql
+    env_file: configuration.env
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+      - ./mysql:/etc/mysql/conf.d
+    ports:
+      - 3306:3306
+    networks:
+      - log_elk
+  
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.2.1
+    container_name: elk_es
+    tty: true
+    privileged: true
+    stdin_open: true
+    environment:
+      - node.name=elasticsearch
+      - cluster.name=log-cluster
+      - discovery.seed_hosts=elasticsearch
+      - discovery.type=single-node
+      - cluster.routing.allocation.enable=all
+      - ELASTIC_PASSWORD=qwerty
+    volumes:
+      - esdata_01:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - log_elk
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.2.1
+    container_name: elk_logstash
+    volumes:
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro,Z
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro,Z
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    environment:
+      LS_JAVA_OPTS: -Xms256m -Xmx256m
+      LOGSTASH_INTERNAL_PASSWORD: qwerty
+    depends_on:
+      - elasticsearch
+    networks:
+      - log_elk
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.2.1
+    container_name: elk_kibana
+    volumes:
+      - kibanadata1:/usr/share/kibana/data
+    ports:
+      - 5601:5601
+    environment:
+      - SERVERNAME=kibana
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=qwerty
+    depends_on:
+      - elasticsearch
+    networks:
+      - log_elk
+
+volumes:
+  esdata_01:
+    driver: local
+  kibanadata1:
+    driver: local
+  filebeat_data:
+    driver: local
+
+networks:
+  log_elk:
+    driver: bridge
